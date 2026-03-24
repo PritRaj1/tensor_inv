@@ -1,0 +1,35 @@
+[project]
+name = "tensor-inv"
+version = "0.1.0"
+description = "Mixed-precision matrix decomposition via tensor cores with iterative refinement"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "torch>=2.1",
+    "triton>=2.2",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "matplotlib>=3.7",
+    "jupyter",
+    "scikit-image>=0.20",
+]
+dev = [
+    "pytest>=7",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
