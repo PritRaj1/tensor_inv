@@ -1,7 +1,7 @@
 [project]
 name = "tensor-inv"
 version = "0.1.0"
-description = "Mixed-precision matrix decomposition via tensor cores with iterative refinement"
+description = "Matrix decomposition for cheap silicon"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
