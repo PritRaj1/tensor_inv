@@ -5,6 +5,7 @@ Matrix decomposition for cheap silicon
 ## References
 
 - [Previous repo for high precision PINNs](https://github.com/thezettascale/fp-emulation)
+- [Ozaki scheme II: FP64 matmul via INT8](https://arxiv.org/abs/2504.08009)
 - [What every computer scientist should know about floating-point arithmetic](https://doi.org/10.1145/103162.103163)
 - [Mixed-precision iterative refinement](https://doi.org/10.1137/17M1122592)
 - [Iterative refinement in three precisions](https://doi.org/10.1137/17M1140819)
