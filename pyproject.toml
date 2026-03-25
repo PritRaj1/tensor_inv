@@ -15,6 +15,7 @@ notebooks = [
     "matplotlib>=3.7",
     "jupyter",
     "scikit-image>=0.20",
+    "scipy>=1.10",
 ]
 dev = [
     "pytest>=7",

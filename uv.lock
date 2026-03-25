@@ -3019,6 +3019,8 @@ notebooks = [
     { name = "matplotlib" },
     { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 
 [package.metadata]
@@ -3028,6 +3030,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "scikit-image", marker = "extra == 'notebooks'", specifier = ">=0.20" },
+    { name = "scipy", marker = "extra == 'notebooks'", specifier = ">=1.10" },
     { name = "torch", specifier = ">=2.1" },
     { name = "triton", specifier = ">=2.2" },
 ]
