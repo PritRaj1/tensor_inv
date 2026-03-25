@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ssciwr/clang-format-check@v2
+      - uses: jidicula/clang-format-action@v4.18.0
         with:
-          include-regex: '.*\.cu$'
+          clang-format-version: "18"
+          check-path: src/tensor_inv/csrc
