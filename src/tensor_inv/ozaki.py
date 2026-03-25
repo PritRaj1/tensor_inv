@@ -12,19 +12,27 @@ _PRIMES = [
 ]
 # fmt: on
 
-_HAS_TENSOR_CORES = None
+_GPU_PATH = None  # "triton", "pytorch", or False
 
 
-def _check_tensor_cores():
-    global _HAS_TENSOR_CORES
-    if _HAS_TENSOR_CORES is None:
+def _detect_gpu_path():
+    """triton needs sm_80+ (Ampere); older CUDA falls back to torch"""
+    global _GPU_PATH
+    if _GPU_PATH is None:
         if not torch.cuda.is_available():
-            _HAS_TENSOR_CORES = False
+            _GPU_PATH = False
         else:
             cap = torch.cuda.get_device_capability()
-            name = torch.cuda.get_device_name(0).lower()
-            _HAS_TENSOR_CORES = cap >= (7, 5) and "gtx 16" not in name
-    return _HAS_TENSOR_CORES
+            if cap >= (8, 0):
+                _GPU_PATH = "triton"
+
+            elif cap >= (7, 0):
+                _GPU_PATH = "pytorch"
+
+            else:
+                _GPU_PATH = False
+
+    return _GPU_PATH
 
 
 def _n_moduli(k):
@@ -106,24 +114,29 @@ def _forward(A, B):
     a_res = _int8_residues(A_int, moduli)
     b_res = _int8_residues(B_int, moduli)
 
-    # fused: tensor cores do matmul + CRT in one kernel
-    if A.is_cuda and _check_tensor_cores():
+    gpu_path = _detect_gpu_path() if A.is_cuda else False
+
+    # fused: INT8 matmul + CRT in one Triton kernel (Ampere+)
+    if gpu_path == "triton":
         from tensor_inv._triton_matmul import fused_ozaki_matmul
+
         return fused_ozaki_matmul(a_res, b_res, moduli, scale_sq, row_max, col_max)
 
-    # unfused: per-prime matmul, then CRT
-    if A.is_cuda:
+    # pytorch fallback: float32 matmul + CPU CRT (Volta/Turing, no Triton)
+    if gpu_path == "pytorch":
         warnings.warn(
-            "no INT8 tensor cores detected, using slower fallback",
+            "Triton requires sm_80+ (Ampere); using PyTorch fallback (slower)",
             stacklevel=3,
         )
+        residues = _matmul_residues(a_res, b_res, moduli)
+        # move to CPU for CRT — Triton kernels won't compile on this GPU
+        cpu_res = [r.cpu() for r in residues]
+        return _crt_cpu(cpu_res, moduli, scale_sq, row_max.cpu(), col_max.cpu()).to(
+            A.device
+        )
 
+    # CPU path
     residues = _matmul_residues(a_res, b_res, moduli)
-
-    if A.is_cuda:
-        from tensor_inv._triton_matmul import crt_reconstruct
-        return crt_reconstruct(residues, moduli, scale_sq, row_max, col_max)
-
     return _crt_cpu(residues, moduli, scale_sq, row_max, col_max)
 
 
