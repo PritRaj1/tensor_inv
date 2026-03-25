@@ -3006,7 +3006,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "torch" },
-    { name = "triton" },
 ]
 
 [package.optional-dependencies]
@@ -3032,7 +3031,6 @@ requires-dist = [
     { name = "scikit-image", marker = "extra == 'notebooks'", specifier = ">=0.20" },
     { name = "scipy", marker = "extra == 'notebooks'", specifier = ">=1.10" },
     { name = "torch", specifier = ">=2.1" },
-    { name = "triton", specifier = ">=2.2" },
 ]
 provides-extras = ["notebooks", "dev"]
 
