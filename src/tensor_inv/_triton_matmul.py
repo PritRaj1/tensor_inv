@@ -112,11 +112,65 @@ def _fused_kernel(
     tl.store(out_ptr + rm[:, None] * N + rn[None, :], result, mask=mask_out)
 
 
-def fused_ozaki_matmul(a_res, b_res, moduli, scale_sq, row_max, col_max):
-    n_mod, M, K = a_res.shape
-    N = b_res.shape[2]
-    device = a_res.device
+@triton.jit
+def _crt_kernel(
+    residues_ptr,
+    wh_ptr,
+    wm_ptr,
+    wl_ptr,
+    const_ptr,
+    row_max_ptr,
+    col_max_ptr,
+    out_ptr,
+    rows,
+    cols,
+    n_mod: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    pid = tl.program_id(0)
+    offs = pid * BLOCK + tl.arange(0, BLOCK)
+    n_elems = rows * cols
+    mask = offs < n_elems
 
+    M_hi = tl.load(const_ptr + 0).to(tl.float64)
+    M_lo = tl.load(const_ptr + 1).to(tl.float64)
+    inv_M = tl.load(const_ptr + 2).to(tl.float64)
+    scale_sq = tl.load(const_ptr + 3).to(tl.float64)
+
+    acc_hi = tl.zeros([BLOCK], dtype=tl.float64)
+    acc_lo = tl.zeros([BLOCK], dtype=tl.float64)
+
+    for i in tl.static_range(n_mod):
+        r = tl.load(residues_ptr + i * n_elems + offs, mask=mask).to(tl.float64)
+        w_hi = tl.load(wh_ptr + i).to(tl.float64)
+        w_mid = tl.load(wm_ptr + i).to(tl.float64)
+        w_lo = tl.load(wl_ptr + i).to(tl.float64)
+
+        prod = r * w_hi
+        e = tl.fma(r, w_hi, -prod)
+
+        s = acc_hi + prod
+        v = s - acc_hi
+        err = (acc_hi - (s - v)) + (prod - v)
+        acc_hi = s
+        acc_lo = acc_lo + tl.fma(r, w_mid, e) + r * w_lo + err
+
+    q = tl.extra.cuda.libdevice.rint((acc_hi + acc_lo) * inv_M)
+    pm = q * M_hi
+    em = tl.fma(q, M_hi, -pm)
+    result = (acc_hi - pm) + (acc_lo - em - q * M_lo)
+
+    row_idx = offs // cols
+    col_idx = offs % cols
+    row_s = tl.load(row_max_ptr + row_idx, mask=mask)
+    col_s = tl.load(col_max_ptr + col_idx, mask=mask)
+    result = result / scale_sq * row_s * col_s
+
+    tl.store(out_ptr + offs, result, mask=mask)
+
+
+def _crt_buffers(moduli, scale_sq, device):
+    """CRT weight tensors + constants for kernel launch"""
     wh, wm, wl, M_hi, M_lo, inv_M = _crt_weights(moduli)
     wh_t = torch.tensor(wh, dtype=torch.float64, device=device)
     wm_t = torch.tensor(wm, dtype=torch.float64, device=device)
@@ -124,6 +178,47 @@ def fused_ozaki_matmul(a_res, b_res, moduli, scale_sq, row_max, col_max):
     const = torch.tensor(
         [M_hi, M_lo, inv_M, scale_sq], dtype=torch.float64, device=device
     )
+    return wh_t, wm_t, wl_t, const
+
+
+def crt_reconstruct(residues, moduli, scale_sq, row_max, col_max):
+    """CRT-only reconstruction via Triton (fallback, no fused matmul)"""
+    n_mod = len(residues)
+    rows, cols = residues[0].shape
+    device = residues[0].device
+
+    res_stack = torch.stack(residues).contiguous()
+    wh_t, wm_t, wl_t, const = _crt_buffers(moduli, scale_sq, device)
+    out = torch.empty(rows, cols, dtype=torch.float64, device=device)
+
+    BLOCK = 1024
+    n_elems = rows * cols
+    grid = (triton.cdiv(n_elems, BLOCK),)
+
+    _crt_kernel[grid](
+        res_stack,
+        wh_t,
+        wm_t,
+        wl_t,
+        const,
+        row_max,
+        col_max,
+        out,
+        rows,
+        cols,
+        n_mod=n_mod,
+        BLOCK=BLOCK,
+        enable_fp_fusion=False,
+    )
+    return out
+
+
+def fused_ozaki_matmul(a_res, b_res, moduli, scale_sq, row_max, col_max):
+    n_mod, M, K = a_res.shape
+    N = b_res.shape[2]
+    device = a_res.device
+
+    wh_t, wm_t, wl_t, const = _crt_buffers(moduli, scale_sq, device)
     primes = torch.tensor(moduli, dtype=torch.int32, device=device)
     out = torch.empty(M, N, dtype=torch.float64, device=device)
 

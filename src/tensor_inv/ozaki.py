@@ -1,4 +1,5 @@
 import math
+import warnings
 
 import torch
 
@@ -11,6 +12,20 @@ _PRIMES = [
 ]
 # fmt: on
 
+_HAS_TENSOR_CORES = None
+
+
+def _check_tensor_cores():
+    global _HAS_TENSOR_CORES
+    if _HAS_TENSOR_CORES is None:
+        if not torch.cuda.is_available():
+            _HAS_TENSOR_CORES = False
+        else:
+            cap = torch.cuda.get_device_capability()
+            name = torch.cuda.get_device_name(0).lower()
+            _HAS_TENSOR_CORES = cap >= (7, 5) and "gtx 16" not in name
+    return _HAS_TENSOR_CORES
+
 
 def _n_moduli(k):
     """min primes whose product covers dot-product range"""
@@ -20,7 +35,6 @@ def _n_moduli(k):
         prod *= p
         if prod > target:
             return i + 1
-
     raise ValueError(f"not enough primes for inner dim {k}")
 
 
@@ -38,8 +52,22 @@ def _int8_residues(X_int, moduli):
     out = torch.empty(len(moduli), *X_int.shape, dtype=torch.int8, device=X_int.device)
     for i, m in enumerate(moduli):
         out[i] = (X_int % m).to(torch.int8)
-
     return out
+
+
+def _matmul_residues(a_res, b_res, moduli):
+    """per-prime matmul, fallback when no tensor cores"""
+    use_float = a_res.is_cuda
+    residues = []
+    for i, m in enumerate(moduli):
+        if use_float:
+            c = (a_res[i].float() @ b_res[i].float()).to(torch.int32)
+        else:
+            c = a_res[i].int() @ b_res[i].int()
+
+        residues.append(c % m)
+
+    return residues
 
 
 def _crt_scalar(residues, moduli):
@@ -49,25 +77,20 @@ def _crt_scalar(residues, moduli):
     for r, m in zip(residues, moduli):
         Mi = M // m
         x += r * Mi * pow(Mi, -1, m)
-
     x %= M
     return x - M if x > M // 2 else x
 
 
-def _cpu_forward(a_res, b_res, moduli, row_max, col_max):
-    n_mod = len(moduli)
-    M, N = a_res.shape[1], b_res.shape[2]
-
-    cs = [a_res[i].int() @ b_res[i].int() for i in range(n_mod)]
-    residues = [cs[i] % m for i, m in enumerate(moduli)]
-
+def _crt_cpu(residues, moduli, scale_sq, row_max, col_max):
+    """element-wise CRT reconstruction on CPU"""
+    M, N = residues[0].shape
     out = torch.empty(M, N, dtype=torch.float64)
     for i in range(M):
         for j in range(N):
-            rs = [residues[k][i, j].item() for k in range(n_mod)]
+            rs = [residues[k][i, j].item() for k in range(len(moduli))]
             out[i, j] = (
                 _crt_scalar(rs, moduli)
-                / _SCALE**2
+                / scale_sq
                 * row_max[i].item()
                 * col_max[j].item()
             )
@@ -77,17 +100,31 @@ def _cpu_forward(a_res, b_res, moduli, row_max, col_max):
 def _forward(A, B):
     n_mod = _n_moduli(A.shape[1])
     moduli = _PRIMES[:n_mod]
+    scale_sq = _SCALE**2
 
     A_int, B_int, row_max, col_max = _scale_to_int(A, B)
     a_res = _int8_residues(A_int, moduli)
     b_res = _int8_residues(B_int, moduli)
 
-    if A.is_cuda:
+    # fused: tensor cores do matmul + CRT in one kernel
+    if A.is_cuda and _check_tensor_cores():
         from tensor_inv._triton_matmul import fused_ozaki_matmul
+        return fused_ozaki_matmul(a_res, b_res, moduli, scale_sq, row_max, col_max)
 
-        return fused_ozaki_matmul(a_res, b_res, moduli, _SCALE**2, row_max, col_max)
+    # unfused: per-prime matmul, then CRT
+    if A.is_cuda:
+        warnings.warn(
+            "no INT8 tensor cores detected, using slower fallback",
+            stacklevel=3,
+        )
 
-    return _cpu_forward(a_res, b_res, moduli, row_max, col_max)
+    residues = _matmul_residues(a_res, b_res, moduli)
+
+    if A.is_cuda:
+        from tensor_inv._triton_matmul import crt_reconstruct
+        return crt_reconstruct(residues, moduli, scale_sq, row_max, col_max)
+
+    return _crt_cpu(residues, moduli, scale_sq, row_max, col_max)
 
 
 class _OzakiMatmul(torch.autograd.Function):
