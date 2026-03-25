@@ -20,7 +20,6 @@ def _n_moduli(k):
         prod *= p
         if prod > target:
             return i + 1
-
     raise ValueError(f"not enough primes for inner dim {k}")
 
 
@@ -38,47 +37,52 @@ def _residues(X_int, moduli):
     out = torch.empty(len(moduli), *X_int.shape, dtype=torch.int8, device=X_int.device)
     for i, m in enumerate(moduli):
         out[i] = (X_int % m).to(torch.int8)
-
     return out
 
 
 def _matmul_residues(a_res, b_res, moduli):
     """per-prime matmul -> modular products"""
+    use_float = a_res.is_cuda
     residues = []
     for i, m in enumerate(moduli):
-        c = a_res[i].int() @ b_res[i].int()
+        if use_float:
+            c = (a_res[i].float() @ b_res[i].float()).to(torch.int32)
+        else:
+            c = a_res[i].int() @ b_res[i].int()
         residues.append(c % m)
-
     return residues
 
 
-def _crt_scalar(residues, moduli):
-    """exact CRT via Python bigints"""
+def _crt_precompute(moduli):
+    """CRT coefficients as Python bigints (exact)"""
     M = math.prod(moduli)
-    x = 0
-    for r, m in zip(residues, moduli):
+    coeffs = []
+    for m in moduli:
         Mi = M // m
-        x += r * Mi * pow(Mi, -1, m)
-
-    x %= M
-    return x - M if x > M // 2 else x
+        coeffs.append(Mi * pow(Mi, -1, m))
+    return coeffs, M
 
 
 def _crt_reconstruct(residues, moduli, scale_sq, row_max, col_max):
-    """element-wise CRT reconstruction"""
+    """CRT reconstruction via Python bigints"""
+    device = residues[0].device
     rows, cols = residues[0].shape
-    out = torch.empty(rows, cols, dtype=torch.float64)
+    coeffs, M = _crt_precompute(moduli)
+    half_M = M // 2
+
+    res_lists = [r.cpu().tolist() for r in residues]
+    row_s = row_max.cpu().tolist()
+    col_s = col_max.cpu().tolist()
+
+    out = [[0.0] * cols for _ in range(rows)]
     for i in range(rows):
         for j in range(cols):
-            rs = [residues[k][i, j].item() for k in range(len(moduli))]
-            out[i, j] = (
-                _crt_scalar(rs, moduli)
-                / scale_sq
-                * row_max[i].item()
-                * col_max[j].item()
-            )
+            x = sum(res_lists[k][i][j] * coeffs[k] for k in range(len(moduli))) % M
+            if x > half_M:
+                x -= M
+            out[i][j] = x / scale_sq * row_s[i] * col_s[j]
 
-    return out
+    return torch.tensor(out, dtype=torch.float64, device=device)
 
 
 def crt_matmul(A, B):
@@ -91,4 +95,10 @@ def crt_matmul(A, B):
     a_res = _residues(A_int, moduli)
     b_res = _residues(B_int, moduli)
     residues = _matmul_residues(a_res, b_res, moduli)
+
+    if A.is_cuda:
+        from tensor_inv._cuda_crt import cuda_crt_reconstruct
+
+        return cuda_crt_reconstruct(residues, moduli, scale_sq, row_max, col_max)
+
     return _crt_reconstruct(residues, moduli, scale_sq, row_max, col_max)

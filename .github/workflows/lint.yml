@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  lint:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,3 +14,11 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
+
+  cuda:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ssciwr/clang-format-check@v2
+        with:
+          glob: "src/**/*.cu"
