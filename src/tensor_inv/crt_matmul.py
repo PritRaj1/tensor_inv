@@ -42,11 +42,10 @@ def _residues(X_int, moduli):
 
 def _matmul_residues(a_res, b_res, moduli):
     """per-prime matmul -> modular products"""
-    use_float = a_res.is_cuda
     residues = []
     for i, m in enumerate(moduli):
-        if use_float:
-            c = (a_res[i].float() @ b_res[i].float()).to(torch.int32)
+        if a_res.is_cuda:
+            c = torch._int_mm(a_res[i], b_res[i])
         else:
             c = a_res[i].int() @ b_res[i].int()
         residues.append(c % m)

@@ -21,4 +21,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ssciwr/clang-format-check@v2
         with:
-          glob: "src/**/*.cu"
+          include-regex: '.*\.cu$'
