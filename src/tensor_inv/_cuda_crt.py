@@ -40,7 +40,7 @@ def _crt_weights(moduli):
     return wh, wm, wl, M_hi, M_lo, inv_M
 
 
-def cuda_crt_reconstruct(residues, moduli, scale_sq, row_max, col_max):
+def cuda_crt_reconstruct(residues, moduli, bits, row_exp, col_exp):
     """CRT reconstruction via CUDA kernel"""
     mod = _load()
     n_mod = len(residues)
@@ -61,9 +61,9 @@ def cuda_crt_reconstruct(residues, moduli, scale_sq, row_max, col_max):
         M_hi,
         M_lo,
         inv_M,
-        scale_sq,
-        row_max,
-        col_max,
+        row_exp.int().contiguous(),
+        col_exp.int().contiguous(),
+        2 * bits,
         rows,
         cols,
         n_mod,

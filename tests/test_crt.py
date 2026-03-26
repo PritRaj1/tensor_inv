@@ -12,10 +12,7 @@ def mats():
     return A, B
 
 
-@pytest.mark.parametrize(
-    "dtype,tol",
-    [(torch.float32, 1e-3), (torch.float64, 1e-10)],
-)
+@pytest.mark.parametrize("dtype,tol", [(torch.float32, 1e-3), (torch.float64, 1e-10)])
 def test_accuracy(mats, dtype, tol):
     A, B = mats
     A, B = A.to(dtype), B.to(dtype)
