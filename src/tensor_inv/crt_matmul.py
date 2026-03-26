@@ -40,11 +40,10 @@ def _scale_to_int(A, B, bits):
 
 def _residues(X_int, moduli):
     """int64 -> stacked int8 residues per prime"""
-    out = torch.empty(len(moduli), *X_int.shape, dtype=torch.int8, device=X_int.device)
-    for i, m in enumerate(moduli):
-        out[i] = (X_int % m).to(torch.int8)
-
-    return out
+    moduli_t = torch.tensor(moduli, dtype=torch.int64, device=X_int.device).view(
+        -1, *([1] * X_int.ndim)
+    )
+    return (X_int.unsqueeze(0) % moduli_t).to(torch.int8)
 
 
 def _pad8(x):
