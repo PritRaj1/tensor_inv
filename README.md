@@ -14,3 +14,5 @@ Matrix decomposition for cheap silicon
 - [Mixed-precision low-rank approximation](https://doi.org/10.1137/23M1576992)
 - [Data-Driven Science and Engineering](https://www.databookuw.com/)
 - [Randomized SVD](https://doi.org/10.1137/090771806)
+- [Sqrt-free Cholesky (LDL^T) on systolic arrays](https://doi.org/10.1049/ip-cdt:19971156)
+- [Systolic arrays for matrix triangularization](https://www.eecs.harvard.edu/~htk/publication/1981-matrix-triangularization-by-systolic-arrays.pdf)
