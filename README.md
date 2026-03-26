@@ -15,5 +15,7 @@ Matrix decomposition for cheap silicon
 - [Data-Driven Science and Engineering](https://www.databookuw.com/)
 - [Randomized SVD](https://doi.org/10.1137/090771806)
 - [Mixed-precision random projection for RandNLA on tensor cores](https://arxiv.org/abs/2304.04612)
+- [Mixed-precision out-of-core Cholesky](https://arxiv.org/abs/2410.09819)
+- [Guaranteed DGEMM accuracy via Ozaki extensions](https://arxiv.org/abs/2511.13778)
 - [Sqrt-free Cholesky (LDL^T) on systolic arrays](https://doi.org/10.1049/ip-cdt:19971156)
 - [Systolic arrays for matrix triangularization](https://www.eecs.harvard.edu/~htk/publication/1981-matrix-triangularization-by-systolic-arrays.pdf)
