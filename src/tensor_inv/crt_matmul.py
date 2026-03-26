@@ -124,6 +124,7 @@ def crt_matmul(A, B):
 
     if A.is_cuda:
         from tensor_inv._cuda_crt import cuda_crt_reconstruct
+
         return cuda_crt_reconstruct(residues, moduli, bits, row_exp, col_exp)
 
     return _crt_reconstruct(residues, moduli, bits, row_exp, col_exp)
