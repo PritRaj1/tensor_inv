@@ -47,13 +47,25 @@ def _residues(X_int, moduli):
     return out
 
 
+def _pad8(x):
+    """pad last two dims to multiples of 8 for _int_mm"""
+    m, n = x.shape[-2], x.shape[-1]
+    pm = (-m) % 8
+    pn = (-n) % 8
+    if pm == 0 and pn == 0:
+        return x
+    return torch.nn.functional.pad(x, (0, pn, 0, pm))
+
+
 def _matmul_residues_impl(a_res, b_res, moduli_t):
     """per-prime int8 matmul + modular reduction"""
+    m, n = a_res.shape[-2], b_res.shape[-1]
+    a_p = _pad8(a_res)
+    b_p = _pad8(b_res)
     results = []
-    for i in range(a_res.shape[0]):
-        c = torch._int_mm(a_res[i], b_res[i])
+    for i in range(a_p.shape[0]):
+        c = torch._int_mm(a_p[i], b_p[i])[:m, :n]
         results.append(c % moduli_t[i])
-
     return results
 
 
