@@ -18,7 +18,7 @@ _PRECISION_BITS = {
 
 
 def _n_moduli(k, bits):
-    """min primes whose product covers dot-product range 2*k*2^(2*bits)"""
+    """min primes whose product covers dot-product range"""
     target = 2 * k * (2 ** (2 * bits))
     prod = 1
     for i, p in enumerate(_PRIMES):
@@ -30,7 +30,7 @@ def _n_moduli(k, bits):
 
 
 def _scale_to_int(A, B, bits):
-    """power-of-2 diagonal scaling (exact in FP), then round to int"""
+    """power-of-2 scaling (exact in FP), round to int"""
     row_exp = A.abs().amax(dim=-1).clamp(min=1e-300).frexp()[1]
     col_exp = B.abs().amax(dim=-2).clamp(min=1e-300).frexp()[1]
     A_int = torch.ldexp(A, bits - row_exp.unsqueeze(-1)).round().to(torch.int64)
@@ -46,42 +46,21 @@ def _residues(X_int, moduli):
     return (X_int.unsqueeze(0) % moduli_t).to(torch.int8)
 
 
-def _pad8(x):
-    """pad last two dims to multiples of 8 for _int_mm"""
-    m, n = x.shape[-2], x.shape[-1]
-    pm = (-m) % 8
-    pn = (-n) % 8
-    if pm == 0 and pn == 0:
-        return x
-    return torch.nn.functional.pad(x, (0, pn, 0, pm))
-
-
-def _matmul_residues_impl(a_res, b_res, moduli_t):
-    """per-prime int8 matmul + modular reduction"""
-    m, n = a_res.shape[-2], b_res.shape[-1]
-    a_p = _pad8(a_res)
-    b_p = _pad8(b_res)
-    results = []
-    for i in range(a_p.shape[0]):
-        c = torch._int_mm(a_p[i], b_p[i])[:m, :n]
-        results.append(c % moduli_t[i])
-    return results
-
-
-_matmul_residues_cuda = torch.compile(_matmul_residues_impl, dynamic=True)
-
-
 def _matmul_residues(a_res, b_res, moduli):
-    """per-prime matmul -> modular products"""
-    moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device)
+    """per-prime int8 matmul + modular reduction"""
     if a_res.is_cuda:
-        return _matmul_residues_cuda(a_res, b_res, moduli_t)
-    c = a_res.int() @ b_res.int()
-    return list(c % moduli_t.view(-1, 1, 1))
+        from tensor_inv._cuda_crt import cuda_batched_int8_gemm_mod
+
+        return cuda_batched_int8_gemm_mod(a_res, b_res, moduli)
+    moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device).view(
+        -1, 1, 1
+    )
+
+    return list((a_res.int() @ b_res.int()) % moduli_t)
 
 
 def _crt_precompute(moduli):
-    """CRT coefficients as Python bigints (exact)"""
+    """CRT coefficients as Python bigints"""
     M = math.prod(moduli)
     coeffs = []
     for m in moduli:
@@ -92,7 +71,7 @@ def _crt_precompute(moduli):
 
 
 def _crt_reconstruct(residues, moduli, bits, row_exp, col_exp):
-    """CRT reconstruction via Python bigints + ldexp unscaling"""
+    """CPU CRT reconstruction via Python bigints"""
     device = residues[0].device
     rows, cols = residues[0].shape
     coeffs, M = _crt_precompute(moduli)

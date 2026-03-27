@@ -40,6 +40,14 @@ def _crt_weights(moduli):
     return wh, wm, wl, M_hi, M_lo, inv_M
 
 
+def cuda_batched_int8_gemm_mod(a_res, b_res, moduli):
+    """Batched int8 GEMM + modular reduction via cuBLAS (single launch)."""
+    mod = _load()
+    moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device)
+    c = mod.batched_int8_gemm_mod(a_res.contiguous(), b_res.contiguous(), moduli_t)
+    return list(c)
+
+
 def cuda_crt_reconstruct(residues, moduli, bits, row_exp, col_exp):
     """CRT reconstruction via CUDA kernel"""
     mod = _load()
