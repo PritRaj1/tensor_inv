@@ -1,4 +1,5 @@
 import math
+import warnings
 from pathlib import Path
 
 import torch
@@ -41,7 +42,7 @@ def _crt_weights(moduli):
 
 
 def _pad4(x):
-    """Pad last two dims to multiples of 4 for cuBLAS int8."""
+    """Pad last two dims to multiples of 4 for cuBLAS int8 alignment."""
     pm = (-x.shape[-2]) % 4
     pn = (-x.shape[-1]) % 4
     if pm == 0 and pn == 0:
@@ -49,15 +50,33 @@ def _pad4(x):
     return torch.nn.functional.pad(x, (0, pn, 0, pm))
 
 
+def _bmm_fallback(a_res, b_res, moduli):
+    """FP32 bmm fallback for GPUs without int8 tensor cores."""
+    c = torch.bmm(a_res.float(), b_res.float()).to(torch.int32)
+    moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device).view(
+        -1, 1, 1
+    )
+    return list(c % moduli_t)
+
+
 def cuda_batched_int8_gemm_mod(a_res, b_res, moduli):
-    """Batched int8 GEMM + mod reduction via cuBLAS."""
+    """Batched int8 GEMM via cublasLt. Falls back to FP32 bmm if no tensor cores."""
     mod = _load()
     m, n = a_res.shape[-2], b_res.shape[-1]
     a_p = _pad4(a_res).contiguous()
     b_p = _pad4(b_res).contiguous()
     moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device)
-    c = mod.batched_int8_gemm_mod(a_p, b_p, moduli_t)
-    return list(c[:, :m, :n])
+
+    try:
+        c = mod.batched_int8_gemm_mod(a_p, b_p, moduli_t)
+        return list(c[:, :m, :n])
+    except RuntimeError:
+        warnings.warn(
+            "cublasLt int8 GEMM not supported on this GPU (no tensor cores?). "
+            "Falling back to FP32 bmm.",
+            stacklevel=3,
+        )
+        return _bmm_fallback(a_res, b_res, moduli)
 
 
 def cuda_crt_reconstruct(residues, moduli, bits, row_exp, col_exp):
