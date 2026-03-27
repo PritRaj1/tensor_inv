@@ -68,7 +68,7 @@ def _matmul_residues_impl(a_res, b_res, moduli_t):
     return results
 
 
-_matmul_residues_cuda = torch.compile(_matmul_residues_impl, mode="max-autotune")
+_matmul_residues_cuda = torch.compile(_matmul_residues_impl, dynamic=True)
 
 
 def _matmul_residues(a_res, b_res, moduli):
