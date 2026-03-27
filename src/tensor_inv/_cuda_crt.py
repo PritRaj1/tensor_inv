@@ -40,12 +40,24 @@ def _crt_weights(moduli):
     return wh, wm, wl, M_hi, M_lo, inv_M
 
 
+def _pad4(x):
+    """Pad last two dims to multiples of 4 for cuBLAS int8."""
+    pm = (-x.shape[-2]) % 4
+    pn = (-x.shape[-1]) % 4
+    if pm == 0 and pn == 0:
+        return x
+    return torch.nn.functional.pad(x, (0, pn, 0, pm))
+
+
 def cuda_batched_int8_gemm_mod(a_res, b_res, moduli):
-    """Batched int8 GEMM + modular reduction via cuBLAS (single launch)."""
+    """Batched int8 GEMM + mod reduction via cuBLAS."""
     mod = _load()
+    m, n = a_res.shape[-2], b_res.shape[-1]
+    a_p = _pad4(a_res).contiguous()
+    b_p = _pad4(b_res).contiguous()
     moduli_t = torch.tensor(moduli, dtype=torch.int32, device=a_res.device)
-    c = mod.batched_int8_gemm_mod(a_res.contiguous(), b_res.contiguous(), moduli_t)
-    return list(c)
+    c = mod.batched_int8_gemm_mod(a_p, b_p, moduli_t)
+    return list(c[:, :m, :n])
 
 
 def cuda_crt_reconstruct(residues, moduli, bits, row_exp, col_exp):
